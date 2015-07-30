@@ -1,4 +1,5 @@
-﻿using LiveSplit.UI;
+﻿using System;
+using System.Drawing;
 using System.IO;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Xml;
@@ -7,6 +8,40 @@ namespace LiveSplit.Model.RunSavers
 {
     public class XMLRunSaver : IRunSaver
     {
+        private XmlElement CreateImageElement(XmlDocument document, string elementName, Image image)
+        {
+            var element = document.CreateElement(elementName);
+
+            if (image != null)
+            {
+                using (var ms = new MemoryStream())
+                {
+                    var bf = new BinaryFormatter();
+
+                    bf.Serialize(ms, image);
+                    var data = ms.ToArray();
+                    var cdata = document.CreateCDataSection(Convert.ToBase64String(data));
+                    element.InnerXml = cdata.OuterXml;
+                }
+            }
+
+            return element;
+        }
+
+        public XmlNode ToXml(Attempt attempt, XmlDocument document)
+        {
+            var attemptElement = document.CreateElement("Time");
+
+            var time = attempt.Time.ToXml(document);
+            attemptElement.InnerXml = time.InnerXml;
+
+            var id = document.CreateAttribute("id");
+            id.InnerText = attempt.Index.ToString();
+            attemptElement.Attributes.Append(id);
+
+            return attemptElement;
+        }
+
         public void Save(IRun run, Stream stream)
         {
             var document = new XmlDocument();
@@ -15,19 +50,34 @@ namespace LiveSplit.Model.RunSavers
             document.AppendChild(docNode);
 
             var parent = document.CreateElement("Run");
-            parent.Attributes.Append(SettingsHelper.ToAttribute(document, "version", "1.5.0"));
+            var version = document.CreateAttribute("version");
+            version.Value = "1.4.2";
+            parent.Attributes.Append(version);
             document.AppendChild(parent);
 
-            parent.AppendChild(SettingsHelper.CreateImageElement(document, "GameIcon", run.GameIcon));
-            parent.AppendChild(SettingsHelper.ToElement(document, "GameName", run.GameName));
-            parent.AppendChild(SettingsHelper.ToElement(document, "CategoryName", run.CategoryName));
-            parent.AppendChild(SettingsHelper.ToElement(document, "Offset", run.Offset));
-            parent.AppendChild(SettingsHelper.ToElement(document, "AttemptCount", run.AttemptCount));
+            var gameIcon = CreateImageElement(document, "GameIcon", run.GameIcon);
+            parent.AppendChild(gameIcon);
 
-            var runHistory = document.CreateElement("AttemptHistory");
-            foreach (var attempt in run.AttemptHistory)
+            var gameName = document.CreateElement("GameName");
+            gameName.InnerText = run.GameName;
+            parent.AppendChild(gameName);
+
+            var categoryName = document.CreateElement("CategoryName");
+            categoryName.InnerText = run.CategoryName;
+            parent.AppendChild(categoryName);
+
+            var offset = document.CreateElement("Offset");
+            offset.InnerText = run.Offset.ToString();
+            parent.AppendChild(offset);
+
+            var attemptCount = document.CreateElement("AttemptCount");
+            attemptCount.InnerText = run.AttemptCount.ToString();
+            parent.AppendChild(attemptCount);
+
+            var runHistory = document.CreateElement("RunHistory");
+            foreach (var historyItem in run.AttemptHistory)
             {
-                runHistory.AppendChild(attempt.ToXml(document));
+                runHistory.AppendChild(ToXml(historyItem, document));
             }
             parent.AppendChild(runHistory);
 
@@ -41,19 +91,26 @@ namespace LiveSplit.Model.RunSavers
                 var splitElement = document.CreateElement("Segment");
                 segmentElement.AppendChild(splitElement);
 
-                splitElement.AppendChild(SettingsHelper.ToElement(document, "Name", segment.Name));
-                splitElement.AppendChild(SettingsHelper.CreateImageElement(document, "Icon", segment.Icon));
+                var name = document.CreateElement("Name");
+                name.InnerText = segment.Name;
+                splitElement.AppendChild(name);
+
+                var icon = CreateImageElement(document, "Icon", segment.Icon);
+                splitElement.AppendChild(icon);
 
                 var splitTimes = document.CreateElement("SplitTimes");
                 foreach (var comparison in run.CustomComparisons)
                 {
                     var splitTime = segment.Comparisons[comparison].ToXml(document, "SplitTime");
-                    splitTime.Attributes.Append(SettingsHelper.ToAttribute(document, "name", comparison));
+                    var comparisonName = document.CreateAttribute("name");
+                    comparisonName.Value = comparison;
+                    splitTime.Attributes.Append(comparisonName);
                     splitTimes.AppendChild(splitTime);
                 }
                 splitElement.AppendChild(splitTimes);
 
-                splitElement.AppendChild(segment.BestSegmentTime.ToXml(document, "BestSegmentTime"));
+                var goldSplit = segment.BestSegmentTime.ToXml(document, "BestSegmentTime");
+                splitElement.AppendChild(goldSplit);
 
                 var history = document.CreateElement("SegmentHistory");
                 foreach (var historySegment in segment.SegmentHistory)
